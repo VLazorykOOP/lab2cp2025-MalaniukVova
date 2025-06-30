@@ -1,1 +1,151 @@
-#  add file's  ignore pull - push 
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <cmath>
+#include <mutex>
+#include <cstdio> // для sprintf_s
+
+using namespace std;
+
+const int w = 800;
+const int h = 600;
+const int V = 5; // швидкість
+const int stepDelayMs = 50;
+
+std::mutex print_mutex;
+
+// Генератор випадкових чисел
+std::mt19937 rng(std::random_device{}());
+
+struct Point {
+    float x, y;
+};
+
+float distance(const Point& a, const Point& b) {
+    return sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+}
+
+// Базовий клас будинку
+class Building {
+protected:
+    Point position;
+    Point target;
+    bool arrived = false;
+    string name;
+public:
+    Building(Point startPos, string typeName) : position(startPos), name(typeName) {}
+
+    virtual void generateTarget() = 0;
+
+    void moveToTarget() {
+        int steps = 0;
+        int maxSteps = 1000;
+
+        while (!arrived && steps < maxSteps) {
+            float dist = distance(position, target);
+            if (dist <= V) {
+                position = target;
+                arrived = true;
+                std::lock_guard<std::mutex> lock(print_mutex);
+                cout << name << " prybuv u tochku (" << target.x << ", " << target.y << ")" << endl;
+                break;
+            }
+
+            float dx = (target.x - position.x) / dist * V;
+            float dy = (target.y - position.y) / dist * V;
+            position.x += dx;
+            position.y += dy;
+
+            {
+                std::lock_guard<std::mutex> lock(print_mutex);
+                cout << name << " rukhaietsia do (" << target.x << ", " << target.y << "). Potochna pozytsiia: ("
+                    << position.x << ", " << position.y << ")" << endl;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(stepDelayMs));
+            steps++;
+        }
+
+        if (steps >= maxSteps) {
+            std::lock_guard<std::mutex> lock(print_mutex);
+            cout << name << " ne zmih dosiahty tsili. Zupynka pislia " << steps << " krokiv." << endl;
+        }
+    }
+
+    void start() {
+        generateTarget();
+        if (distance(position, target) <= V) {
+            std::lock_guard<std::mutex> lock(print_mutex);
+            cout << name << " vzhe u tsilovii zoni. Ne rukhaietsia." << endl;
+            return;
+        }
+        moveToTarget();
+    }
+};
+
+// Капітальний будинок
+class CapitalBuilding : public Building {
+public:
+    CapitalBuilding(Point pos, int id) : Building(pos, "") {
+        char buffer[100];
+        sprintf_s(buffer, sizeof(buffer), "Kapitalnyi budynok #%d", id);
+        name = buffer;
+    }
+
+    void generateTarget() override {
+        std::uniform_real_distribution<float> xDist(0, w / 2);
+        std::uniform_real_distribution<float> yDist(0, h / 2);
+        target = { xDist(rng), yDist(rng) };
+    }
+};
+
+// Дерев’яний будинок
+class WoodenBuilding : public Building {
+public:
+    WoodenBuilding(Point pos, int id) : Building(pos, "") {
+        char buffer[100];
+        sprintf_s(buffer, sizeof(buffer), "Derevianyi budynok #%d", id);
+        name = buffer;
+    }
+
+    void generateTarget() override {
+        std::uniform_real_distribution<float> xDist(w / 2, w);
+        std::uniform_real_distribution<float> yDist(h / 2, h);
+        target = { xDist(rng), yDist(rng) };
+    }
+};
+
+int main() {
+    const int numCapital = 1;
+    const int numWooden = 1;
+
+    vector<thread> threads;
+
+    // Капітальний будинок
+    for (int i = 0; i < numCapital; ++i) {
+        std::uniform_real_distribution<float> xDist(0, w);
+        std::uniform_real_distribution<float> yDist(0, h);
+        Point startPos = { xDist(rng), yDist(rng) };
+        CapitalBuilding* cb = new CapitalBuilding(startPos, i + 1);
+        threads.emplace_back(&CapitalBuilding::start, cb);
+    }
+
+    // Дерев’яний будинок
+    for (int i = 0; i < numWooden; ++i) {
+        std::uniform_real_distribution<float> xDist(0, w);
+        std::uniform_real_distribution<float> yDist(0, h);
+        Point startPos = { xDist(rng), yDist(rng) };
+        WoodenBuilding* wb = new WoodenBuilding(startPos, i + 1);
+        threads.emplace_back(&WoodenBuilding::start, wb);
+    }
+
+    // Очікуємо завершення всіх потоків
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    cout << "\nSymuliatsiia zavershena!" << endl;
+    return 0;
+}
